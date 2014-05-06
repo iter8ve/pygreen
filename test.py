@@ -41,6 +41,17 @@ class TestSequenceFunctions(unittest.TestCase):
             value = _file.read()
         self.assertEqual(value.strip(), b"3+2=5")
 
+    def test_haml_gen(self):
+        self.pygreen.set_folder(os.path.join(_folder, "input_haml_gen"))
+        self.pygreen.set_preprocessor(haml.preprocessor)
+        value = self.pygreen.gen_static(_output)
+        with open(os.path.join(_output, "test.txt"), "rb") as _file:
+            value = _file.read()
+        self.assertEqual(value.strip(), b"test")
+        with open(os.path.join(_output, "test.html"), "rb") as _file:
+            value = _file.read()
+        self.assertEqual(value.strip(), b'<div class="output">3+2=5</div>')
+
     def test_markdown(self):
         self.pygreen.set_folder(os.path.join(_folder, "input_markdown"))
         value = self.pygreen.get("test.html")
