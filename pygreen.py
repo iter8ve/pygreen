@@ -2,19 +2,19 @@
 
 # PyGreen
 # Copyright (c) 2013, Nicolas Vanhoren
-# 
+#
 # Released under the MIT license
-# 
+#
 # Permission is hereby granted, free of charge, to any person obtaining a copy of
 # this software and associated documentation files (the "Software"), to deal in
 # the Software without restriction, including without limitation the rights to use,
 # copy, modify, merge, publish, distribute, sublicense, and/or sell copies of the
 # Software, and to permit persons to whom the Software is furnished to do so,
 # subject to the following conditions:
-# 
+#
 # The above copyright notice and this permission notice shall be included in all
 # copies or substantial portions of the Software.
-# 
+#
 # THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
 # IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS
 # FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR
@@ -36,6 +36,7 @@ import re
 import argparse
 import sys
 import markdown
+import haml
 
 _logger = logging.getLogger(__name__)
 
@@ -46,17 +47,13 @@ class PyGreen:
         self.app = flask.Flask(__name__, static_folder=None, template_folder=None)
         # a set of strings that identifies the extension of the files
         # that should be processed using Mako
-        self.template_exts = set(["html"])
+        self.template_exts = set(["html", "mako"])
         # the folder where the files to serve are located. Do not set
         # directly, use set_folder instead
         self.folder = "."
         self.app.root_path = "."
-        # the TemplateLookup of Mako
-        self.templates = TemplateLookup(directories=[self.folder],
-            imports=["from markdown import markdown"],
-            input_encoding='iso-8859-1',
-            collection_size=100,
-            )
+        self.templates = self._get_templates()
+
         # A list of regular expression. Files whose the name match
         # one of those regular expressions will not be outputed when generating
         # a static version of the web site
@@ -66,7 +63,7 @@ class PyGreen:
                 if re.match(ex,path):
                     return False
             return True
-            
+
         def base_lister():
             files = []
             for dirpath, dirnames, filenames in os.walk(self.folder):
@@ -107,6 +104,20 @@ class PyGreen:
         self.templates.directories[0] = folder
         self.app.root_path = folder
 
+
+    def _get_templates(self, preprocessor=None):
+        return TemplateLookup(directories=[self.folder],
+            imports=["from markdown import markdown"],
+            input_encoding='iso-8859-1',
+            collection_size=100,
+            preprocessor=preprocessor
+        )
+
+
+    def set_preprocessor(self, preprocessor):
+        self.templates = self._get_templates(preprocessor)
+
+
     def run(self, host='0.0.0.0', port=8080):
         """
         Launch a development web server.
@@ -124,7 +135,7 @@ class PyGreen:
 
     def gen_static(self, output_folder):
         """
-        Generates a complete static version of the web site. It will stored in 
+        Generates a complete static version of the web site. It will stored in
         output_folder.
         """
         files = []

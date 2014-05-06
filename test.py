@@ -6,6 +6,7 @@ import pygreen
 import shutil
 import os
 import os.path
+import haml
 
 _folder = os.path.join(os.path.dirname(__file__), "tests")
 _output = os.path.join(_folder, "output")
@@ -44,6 +45,14 @@ class TestSequenceFunctions(unittest.TestCase):
         self.pygreen.set_folder(os.path.join(_folder, "input_markdown"))
         value = self.pygreen.get("test.html")
         self.assertEqual(value.strip(), b"<h1>Test</h1>")
+
+    def test_haml_markdown(self):
+        self.pygreen.set_folder(os.path.join(_folder, "input_haml_markdown"))
+        self.pygreen.set_preprocessor(haml.preprocessor)
+        value = self.pygreen.get("test.html")
+        self.assertEqual(value.strip(), b"<h1>Test</h1>")
+
+
 
 if __name__ == '__main__':
     unittest.main()
