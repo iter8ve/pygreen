@@ -3,5 +3,3 @@ dist
 MANIFEST
 build
 *.egg-info
-
-setup.cfg
