@@ -83,18 +83,27 @@ class PyGreen:
 
         def file_renderer(path):
             if is_public(path):
-                if path.split(".")[-1] in self.template_exts and self.templates.has_template(path):
+                if path.split(".")[-1] in self.template_exts and \
+                        self.templates.has_template(path):
                     t = self.templates.get_template(path)
                     data = t.render_unicode(pygreen=self)
                     return data.encode(t.module._source_encoding)
                 if os.path.exists(os.path.join(self.folder, path)):
                     return flask.send_file(path)
             flask.abort(404)
+
         # The default function used to render files. Could be modified to change the way files are
         # generated, like using another template language or transforming css...
         self.file_renderer = file_renderer
-        self.app.add_url_rule('/', "root", lambda: self.file_renderer('index.html'), methods=['GET', 'POST', 'PUT', 'DELETE'])
-        self.app.add_url_rule('/<path:path>', "all_files", lambda path: self.file_renderer(path), methods=['GET', 'POST', 'PUT', 'DELETE'])
+
+        self.app.add_url_rule('/', "root",
+            lambda: self.file_renderer('index.html'),
+            methods=['GET', 'POST', 'PUT', 'DELETE']
+        )
+        self.app.add_url_rule('/<path:path>', "all_files",
+            lambda path: self.file_renderer(path),
+            methods=['GET', 'POST', 'PUT', 'DELETE']
+        )
 
     def set_folder(self, folder):
         """
@@ -104,7 +113,6 @@ class PyGreen:
         self.templates.directories[0] = folder
         self.app.root_path = folder
 
-
     def _get_templates(self, preprocessor=None):
         return TemplateLookup(directories=[self.folder],
             imports=["from markdown import markdown"],
@@ -113,10 +121,8 @@ class PyGreen:
             preprocessor=preprocessor
         )
 
-
     def set_preprocessor(self, preprocessor):
         self.templates = self._get_templates(preprocessor)
-
 
     def run(self, host='0.0.0.0', port=8080):
         """
@@ -160,30 +166,55 @@ class PyGreen:
         """
         logging.basicConfig(level=logging.INFO, format='%(message)s')
 
-        parser = argparse.ArgumentParser(description='PyGreen, micro web framework/static web site generator')
+        parser = \
+            argparse.ArgumentParser(description='PyGreen, micro web framework/static web site generator')
         subparsers = parser.add_subparsers(dest='action')
 
         parser_serve = subparsers.add_parser('serve', help='serve the web site')
-        parser_serve.add_argument('-p', '--port', type=int, default=8080, help='folder containg files to serve')
-        parser_serve.add_argument('-f', '--folder', default=".", help='folder containg files to serve')
-        parser_serve.add_argument('-d', '--disable-templates', action='store_true', default=False, help='just serve static files, do not use invoke Mako')
+        parser_serve.add_argument('-p', '--port', type=int, default=8080,
+            help='folder containing files to serve')
+        parser_serve.add_argument('-f', '--folder', default=".",
+            help='folder containg files to serve')
+        parser_serve.add_argument('-d', '--disable-templates',
+            action='store_true', default=False,
+            help='just serve static files, do not use invoke Mako')
+        parser_serve.add_argument('-h', '--use-haml',
+            action='store_true', default=False,
+            help='preprocess with PyHAML')
+
         def serve():
             if args.disable_templates:
                 self.template_exts = set([])
+            if args.use_haml:
+                self.set_preprocessor(haml.preprocessor)
             self.run(port=args.port)
+
         parser_serve.set_defaults(func=serve)
 
-        parser_gen = subparsers.add_parser('gen', help='generate a static version of the site')
-        parser_gen.add_argument('output', help='folder to store the files')
-        parser_gen.add_argument('-f', '--folder', default=".", help='folder containg files to serve')
+        parser_gen = subparsers.add_parser('gen',
+            help='generate a static version of the site')
+        parser_gen.add_argument('output',
+            help='folder to store the files')
+        parser_gen.add_argument('-f', '--folder', default=".",
+            help='folder containing files to serve')
+        parser_gen.add_argument('-h', '--use-haml',
+            action='store_true', default=False,
+            help='preprocess with PyHAML')
+
         def gen():
+            if args.use_haml:
+                self.set_preprocessor(haml.preprocessor)
             self.gen_static(args.output)
+
         parser_gen.set_defaults(func=gen)
 
         args = parser.parse_args(cmd_args)
+
         self.set_folder(args.folder)
+
         print(parser.description)
         print("")
+
         args.func()
 
 pygreen = PyGreen()
