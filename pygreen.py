@@ -25,6 +25,7 @@
 from __future__ import unicode_literals, print_function
 
 import flask
+from flask.ext.assets import Environment, Bundle
 import os.path
 from mako.lookup import TemplateLookup
 import os
@@ -36,7 +37,10 @@ import re
 import argparse
 import sys
 import markdown
+import pathlib
 import haml
+from assetmanager import AssetManager
+
 
 _logger = logging.getLogger(__name__)
 
@@ -44,20 +48,43 @@ class PyGreen:
 
     def __init__(self):
         # the Bottle application
-        self.app = flask.Flask(__name__, static_folder=None, template_folder=None)
         # a set of strings that identifies the extension of the files
         # that should be processed using Mako
-        self.template_exts = set(["html", "mako"])
+        self.template_exts = set(["html", "mako", "haml"])
         # the folder where the files to serve are located. Do not set
         # directly, use set_folder instead
         self.folder = "."
+
+        self.manager = AssetManager(os.path.relpath('assets.yml', self.folder))
+
+        self.app = flask.Flask(__name__, static_folder='static', template_folder=None)
         self.app.root_path = "."
-        self.templates = self._get_templates()
+        self.app.before_first_request(self.manager.build_environment)
+
+        self.preprocessor = None
+
+        self.templates = self._get_templates(self.preprocessor)
 
         # A list of regular expression. Files whose the name match
         # one of those regular expressions will not be outputed when generating
         # a static version of the web site
-        self.file_exclusion = [r".*\.mako", r".*\.py", r"(^|.*\/)\..*"]
+        self.file_exclusion = [
+            r".*\.mako",
+            r".*\.py",
+            r"(^|.*\/)\..*",
+            r".*\.webassets-cache"
+        ]
+
+        def dirpath_allowed(dirpath):
+            allowed = [
+                r"static",
+                r"templates"
+            ]
+            for patt in allowed:
+                if re.search(patt, dirpath):
+                    return True
+            return False
+
         def is_public(path):
             for ex in self.file_exclusion:
                 if re.match(ex,path):
@@ -67,12 +94,14 @@ class PyGreen:
         def base_lister():
             files = []
             for dirpath, dirnames, filenames in os.walk(self.folder):
-                for f in filenames:
-                    absp = os.path.join(dirpath, f)
-                    path = os.path.relpath(absp, self.folder)
-                    if is_public(path):
-                        files.append(path)
+                if dirpath_allowed(dirpath):
+                    for f in filenames:
+                        absp = os.path.join(dirpath, f)
+                        path = os.path.relpath(absp, self.folder)
+                        if is_public(path):
+                            files.append(path)
             return files
+
         # A list of functions. Each function must return a list of paths
         # of files to export during the generation of the static web site.
         # The default one simply returns all the files contained in the folder.
@@ -97,7 +126,7 @@ class PyGreen:
         self.file_renderer = file_renderer
 
         self.app.add_url_rule('/', "root",
-            lambda: self.file_renderer('index.html'),
+            lambda: self.file_renderer('index.haml'),
             methods=['GET', 'POST', 'PUT', 'DELETE']
         )
         self.app.add_url_rule('/<path:path>', "all_files",
@@ -111,10 +140,12 @@ class PyGreen:
         """
         self.folder = folder
         self.templates.directories[0] = folder
+        self.templates.directories[1] = os.path.join(folder, 'templates')
         self.app.root_path = folder
 
     def _get_templates(self, preprocessor=None):
-        return TemplateLookup(directories=[self.folder],
+        template_dir = os.path.join(self.folder, 'templates')
+        return TemplateLookup(directories=[self.folder, template_dir],
             imports=["from markdown import markdown"],
             input_encoding='iso-8859-1',
             collection_size=100,
@@ -122,13 +153,16 @@ class PyGreen:
         )
 
     def set_preprocessor(self, preprocessor):
+        self.preprocessor = preprocessor
         self.templates = self._get_templates(preprocessor)
 
-    def run(self, host='0.0.0.0', port=8080):
+    def run(self, host='0.0.0.0', port=8080, debug=True, reload=False):
         """
         Launch a development web server.
         """
-        self.app.run(host=host, port=port, debug=True, use_reloader=False, use_evalex=False)
+        self.app.run(host=host, port=port, debug=debug,
+            use_reloader=reload, use_evalex=False,
+            extra_files=self.manager.files_to_watch())
 
     def get(self, path):
         """
@@ -138,6 +172,14 @@ class PyGreen:
         """
         data = self.app.test_client().get("/%s" % path).data
         return data
+
+    def output_path(self, input_path):
+        p = pathlib.Path(input_path)
+        if p.parts[0] == 'templates':
+            p = p.relative_to('templates')
+        if p.suffix == '.haml':
+            p = p.with_suffix('.html')
+        return str(p)
 
     def gen_static(self, output_folder):
         """
@@ -150,7 +192,7 @@ class PyGreen:
         for f in files:
             _logger.info("generating %s" % f)
             content = self.get(f)
-            loc = os.path.join(output_folder, f)
+            loc = os.path.join(output_folder, self.output_path(f))
             d = os.path.dirname(loc)
             if not os.path.exists(d):
                 os.makedirs(d)
@@ -172,22 +214,26 @@ class PyGreen:
 
         parser_serve = subparsers.add_parser('serve', help='serve the web site')
         parser_serve.add_argument('-p', '--port', type=int, default=8080,
-            help='folder containing files to serve')
+            help='server port')
         parser_serve.add_argument('-f', '--folder', default=".",
-            help='folder containg files to serve')
+            help='folder containing files to serve')
         parser_serve.add_argument('-d', '--disable-templates',
             action='store_true', default=False,
             help='just serve static files, do not use invoke Mako')
-        parser_serve.add_argument('-h', '--use-haml',
+        parser_serve.add_argument('-m', '--use-haml',
             action='store_true', default=False,
             help='preprocess with PyHAML')
+        parser_serve.add_argument('-r', '--reload',
+            action='store_true', default=False,
+            help='server reloads')
+
 
         def serve():
             if args.disable_templates:
                 self.template_exts = set([])
             if args.use_haml:
                 self.set_preprocessor(haml.preprocessor)
-            self.run(port=args.port)
+            self.run(port=args.port, debug=True, reload=args.reload)
 
         parser_serve.set_defaults(func=serve)
 
@@ -197,11 +243,12 @@ class PyGreen:
             help='folder to store the files')
         parser_gen.add_argument('-f', '--folder', default=".",
             help='folder containing files to serve')
-        parser_gen.add_argument('-h', '--use-haml',
+        parser_gen.add_argument('-m', '--use-haml',
             action='store_true', default=False,
             help='preprocess with PyHAML')
 
         def gen():
+            self._generate_assets(rebuild=False)
             if args.use_haml:
                 self.set_preprocessor(haml.preprocessor)
             self.gen_static(args.output)
