@@ -41,13 +41,11 @@ import pathlib
 import haml
 from assetmanager import AssetManager
 
-
 _logger = logging.getLogger(__name__)
 
-class PyGreen:
+class PyGreen(object):
 
     def __init__(self):
-        # the Bottle application
         # a set of strings that identifies the extension of the files
         # that should be processed using Mako
         self.template_exts = set(["html", "mako", "haml"])
@@ -57,12 +55,17 @@ class PyGreen:
 
         self.manager = AssetManager(os.path.relpath('assets.yml', self.folder))
 
+        # Flask application
         self.app = flask.Flask(__name__, static_folder='static', template_folder=None)
         self.app.root_path = "."
+
+        # Build webassets environment after each application restart
         self.app.before_first_request(self.manager.build_environment)
 
+        # Template preprocessor to pass to Mako
         self.preprocessor = None
 
+        # Process templates at instantiation
         self.templates = self._get_templates(self.preprocessor)
 
         # A list of regular expression. Files whose the name match
@@ -75,6 +78,8 @@ class PyGreen:
             r".*\.webassets-cache"
         ]
 
+        # Support additional directories at the root level by
+        # only accepting these on static page generation
         def dirpath_allowed(dirpath):
             allowed = [
                 r"static",
@@ -87,7 +92,7 @@ class PyGreen:
 
         def is_public(path):
             for ex in self.file_exclusion:
-                if re.match(ex,path):
+                if re.match(ex, path):
                     return False
             return True
 
@@ -106,7 +111,7 @@ class PyGreen:
         # of files to export during the generation of the static web site.
         # The default one simply returns all the files contained in the folder.
         # It is necessary to define new listers when new routes are defined
-        # in the Bottle application, or the static site generation routine
+        # in the Flask application, or the static site generation routine
         # will not be able to detect the files to export.
         self.file_listers = [base_lister]
 
@@ -143,6 +148,7 @@ class PyGreen:
         self.templates.directories[1] = os.path.join(folder, 'templates')
         self.app.root_path = folder
 
+    # Support injection of a Mako preprocessor (e.g. PyHAML)
     def _get_templates(self, preprocessor=None):
         template_dir = os.path.join(self.folder, 'templates')
         return TemplateLookup(directories=[self.folder, template_dir],
@@ -153,6 +159,9 @@ class PyGreen:
         )
 
     def set_preprocessor(self, preprocessor):
+        """
+        Inject a Mako preprocessor (e.g. PyHAML)
+        """
         self.preprocessor = preprocessor
         self.templates = self._get_templates(preprocessor)
 
@@ -173,7 +182,9 @@ class PyGreen:
         data = self.app.test_client().get("/%s" % path).data
         return data
 
-    def output_path(self, input_path):
+    # Support templates directory (vice root directory only) and
+    # .haml suffix (vice .html) for static generation.
+    def _process_path(self, input_path):
         p = pathlib.Path(input_path)
         if p.parts[0] == 'templates':
             p = p.relative_to('templates')
@@ -192,7 +203,7 @@ class PyGreen:
         for f in files:
             _logger.info("generating %s" % f)
             content = self.get(f)
-            loc = os.path.join(output_folder, self.output_path(f))
+            loc = os.path.join(output_folder, self._process_path(f))
             d = os.path.dirname(loc)
             if not os.path.exists(d):
                 os.makedirs(d)
