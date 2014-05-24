@@ -39,9 +39,32 @@ import sys
 import markdown
 import pathlib
 import haml
+from multiprocessing import Process, Lock
 from assetmanager import AssetManager
 
 _logger = logging.getLogger(__name__)
+
+def create_app(static_folder='static', template_folder=None,
+        root_path="."):
+    app = flask.Flask('pygreen',
+        static_folder=static_folder, template_folder=template_folder)
+    app.root_path = root_path
+    return app
+
+def configure_views(app, file_renderer):
+    app.add_url_rule('/', "root",
+        lambda: file_renderer('index.haml'),
+        methods=['GET', 'POST', 'PUT', 'DELETE']
+    )
+    app.add_url_rule('/<path:path>', "all_files",
+        lambda path: file_renderer(path),
+        methods=['GET', 'POST', 'PUT', 'DELETE']
+    )
+
+    return app
+
+def create_assetmanager(watched, reload, lock):
+    manager = AssetManager(watched, reload, lock)
 
 class PyGreen(object):
 
@@ -52,15 +75,6 @@ class PyGreen(object):
         # the folder where the files to serve are located. Do not set
         # directly, use set_folder instead
         self.folder = "."
-
-        self.manager = AssetManager(os.path.relpath('assets.yml', self.folder))
-
-        # Flask application
-        self.app = flask.Flask(__name__, static_folder='static', template_folder=None)
-        self.app.root_path = "."
-
-        # Build webassets environment after each application restart
-        self.app.before_first_request(self.manager.build_environment)
 
         # Template preprocessor to pass to Mako
         self.preprocessor = None
@@ -130,15 +144,6 @@ class PyGreen(object):
         # generated, like using another template language or transforming css...
         self.file_renderer = file_renderer
 
-        self.app.add_url_rule('/', "root",
-            lambda: self.file_renderer('index.haml'),
-            methods=['GET', 'POST', 'PUT', 'DELETE']
-        )
-        self.app.add_url_rule('/<path:path>', "all_files",
-            lambda path: self.file_renderer(path),
-            methods=['GET', 'POST', 'PUT', 'DELETE']
-        )
-
     def set_folder(self, folder):
         """
         Sets the folder where the files to serve are located.
@@ -146,7 +151,6 @@ class PyGreen(object):
         self.folder = folder
         self.templates.directories[0] = folder
         self.templates.directories[1] = os.path.join(folder, 'templates')
-        self.app.root_path = folder
 
     # Support injection of a Mako preprocessor (e.g. PyHAML)
     def _get_templates(self, preprocessor=None):
@@ -169,9 +173,11 @@ class PyGreen(object):
         """
         Launch a development web server.
         """
-        self.app.run(host=host, port=port, debug=debug,
-            use_reloader=reload, use_evalex=False,
-            extra_files=self.manager.files_to_watch())
+        print("pygreen.run called")
+        app = create_app(root_path=self.folder)
+        app = configure_views(app, self.file_renderer)
+        app.run(host=host, port=port, debug=debug,
+            use_reloader=reload, use_evalex=False)
 
     def get(self, path):
         """
@@ -179,7 +185,9 @@ class PyGreen(object):
         in PyGreen. If the file extension is one of the extensions that should be processed
         through Mako, it will be processed.
         """
-        data = self.app.test_client().get("/%s" % path).data
+        app = create_app(root_path=self.folder)
+        app = configure_views(app, self.file_renderer)
+        data = app.test_client().get("/%s" % path).data
         return data
 
     # Support templates directory (vice root directory only) and
@@ -211,7 +219,9 @@ class PyGreen(object):
                 file_.write(content)
 
     def __call__(self, environ, start_response):
-        return self.app(environ, start_response)
+        app = create_app(root_path=self.folder)
+        app = configure_views(app, self.file_renderer)
+        return app(environ, start_response)
 
     def cli(self, cmd_args=None):
         """
@@ -244,6 +254,13 @@ class PyGreen(object):
                 self.template_exts = set([])
             if args.use_haml:
                 self.set_preprocessor(haml.preprocessor)
+            if args.reload:
+                watched_folder = os.path.relpath('assets.yml', self.folder)
+                lock = Lock()
+                proc = Process(target=create_assetmanager,
+                    args=(watched_folder, True, lock,))
+                proc.start()
+            print("pygreen.serve called")
             self.run(port=args.port, debug=True, reload=args.reload)
 
         parser_serve.set_defaults(func=serve)

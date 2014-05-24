@@ -4,6 +4,7 @@ from webassets.bundle import wrap
 import pathlib
 import os
 import logging
+import time
 from watchdog.observers import Observer
 from watchdog.events import FileSystemEventHandler
 
@@ -12,12 +13,28 @@ logger.setLevel(logging.DEBUG)
 
 
 class FileModifiedHandler(FileSystemEventHandler):
-    def __init__(self, callable):
+    def __init__(self, callable, lock=None):
         super(FileModifiedHandler, self).__init__()
         self.callable = callable
+        self.lock = lock
 
-    def on_modified(self):
+    def _process(self, event):
+        if self.lock:
+            self.lock.acquire()
+            print("handling %s at %s" % (event.event_type, event.src_path))
+            self.lock.release()
+        else:
+            print("handling %s at %s" % (event.event_type, event.src_path))
         self.callable()
+
+    def on_modified(self, event):
+        self._process(event)
+
+    # def on_created(self, event):
+    #     self._process(event)
+
+    # def on_deleted(self, event):
+    #     self._process(event)
 
 class AssetManager(object):
 
@@ -34,11 +51,14 @@ class AssetManager(object):
             environment.register(name, bundle)
         return environment
 
-    def __init__(self, config_path, rebuild=False):
+    def __init__(self, config_path, rebuild=False, lock=None):
         bundles = self._load_asset_bundles(config_path)
         self.environment = self._setup_environment(bundles)
+        self.lock = lock
         if rebuild:
             self._setup_rebuild()
+        else:
+            self.build_environment()
 
     def _resolve_assets_dir(self):
         for dirpath, dirnames, files in os.walk('.'):
@@ -56,14 +76,27 @@ class AssetManager(object):
         abspaths.extend(bundle.resolve_depends(ctx))
         return set(abspaths)
 
+    def message(self, val):
+        if self.lock:
+            self.lock.acquire()
+            print(val)
+            self.lock.release()
+        else:
+            print(val)
 
     def _setup_rebuild(self):
-        watched = self._resolve_assets_dir()
-        rebuilder = FileModifiedHandler(self.environment)
-        observer = Observer()
-        observer.schedule(rebuilder, watched, recursive=True)
-        observer.start()
+        pass
+        # watched = self._resolve_assets_dir()
+        # self.message("watching %s" % watched)
+        # rebuilder = FileModifiedHandler(self.build_environment, self.lock)
+        # observer = Observer()
+        # observer.schedule(rebuilder, watched, recursive=True)
+        # observer.daemon = True
+        # observer.start()
+        # observer.join()
 
     def build_environment(self):
+        print "building environment..."
         for bundle in self.environment:
             bundle.build()
+
