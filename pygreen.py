@@ -63,9 +63,6 @@ def configure_views(app, file_renderer):
 
     return app
 
-def create_assetmanager(watched, reload, lock):
-    manager = AssetManager(watched, reload, lock)
-
 class PyGreen(object):
 
     def __init__(self):
@@ -169,15 +166,18 @@ class PyGreen(object):
         self.preprocessor = preprocessor
         self.templates = self._get_templates(preprocessor)
 
-    def run(self, host='0.0.0.0', port=8080, debug=True, reload=False):
+    def run(self, host='0.0.0.0', port=8080, debug=True,
+            reload=False):
         """
         Launch a development web server.
         """
         print("pygreen.run called")
         app = create_app(root_path=self.folder)
         app = configure_views(app, self.file_renderer)
+        app.before_first_request(self.manager.build_environment)
         app.run(host=host, port=port, debug=debug,
-            use_reloader=reload, use_evalex=False)
+            use_reloader=reload, use_evalex=False,
+            extra_files=self.manager.files_to_watch())
 
     def get(self, path):
         """
@@ -254,13 +254,8 @@ class PyGreen(object):
                 self.template_exts = set([])
             if args.use_haml:
                 self.set_preprocessor(haml.preprocessor)
-            if args.reload:
-                watched_folder = os.path.relpath('assets.yml', self.folder)
-                lock = Lock()
-                proc = Process(target=create_assetmanager,
-                    args=(watched_folder, True, lock,))
-                proc.start()
-            print("pygreen.serve called")
+            config_path = os.path.relpath('assets.yml', self.folder)
+            self.manager = AssetManager(config_path, args.reload)
             self.run(port=args.port, debug=True, reload=args.reload)
 
         parser_serve.set_defaults(func=serve)

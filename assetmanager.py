@@ -13,19 +13,13 @@ logger.setLevel(logging.DEBUG)
 
 
 class FileModifiedHandler(FileSystemEventHandler):
-    def __init__(self, callable, lock=None):
+    def __init__(self, callable):
         super(FileModifiedHandler, self).__init__()
         self.callable = callable
-        self.lock = lock
 
     def _process(self, event):
-        if self.lock:
-            self.lock.acquire()
-            print("handling %s at %s" % (event.event_type, event.src_path))
-            self.lock.release()
-        else:
-            print("handling %s at %s" % (event.event_type, event.src_path))
-        self.callable()
+        print("handling %s at %s" % (event.event_type, event.src_path))
+
 
     def on_modified(self, event):
         self._process(event)
@@ -44,21 +38,18 @@ class AssetManager(object):
             return loader.load_bundles()
         return None
 
-    def _setup_environment(self, bundles):
+    def _setup_environment(self, bundles, rebuild=True):
         environment = webassets.Environment()
         environment.directory = self._resolve_assets_dir()
         for name, bundle in bundles.iteritems():
             environment.register(name, bundle)
+        environment.auto_build = rebuild
         return environment
 
-    def __init__(self, config_path, rebuild=False, lock=None):
+    def __init__(self, config_path, rebuild=False):
         bundles = self._load_asset_bundles(config_path)
-        self.environment = self._setup_environment(bundles)
-        self.lock = lock
-        if rebuild:
-            self._setup_rebuild()
-        else:
-            self.build_environment()
+        self.environment = self._setup_environment(bundles, rebuild)
+        self.build_environment()
 
     def _resolve_assets_dir(self):
         for dirpath, dirnames, files in os.walk('.'):
@@ -67,22 +58,15 @@ class AssetManager(object):
         return None
 
     def files_to_watch(self):
-        files = []
+        files, depends = [], []
         ctx = wrap(self.environment, None)
         for bundle in self.environment:
             files.extend(bundle.resolve_contents(force=True))
+            depends.extend(bundle.resolve_depends(ctx))
         orig, abspaths = zip(*files)
         abspaths = list(abspaths)
-        abspaths.extend(bundle.resolve_depends(ctx))
+        abspaths.extend(depends)
         return set(abspaths)
-
-    def message(self, val):
-        if self.lock:
-            self.lock.acquire()
-            print(val)
-            self.lock.release()
-        else:
-            print(val)
 
     def _setup_rebuild(self):
         pass
