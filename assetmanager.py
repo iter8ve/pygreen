@@ -49,7 +49,6 @@ class AssetManager(object):
     def __init__(self, config_path, rebuild=False):
         bundles = self._load_asset_bundles(config_path)
         self.environment = self._setup_environment(bundles, rebuild)
-        self.build_environment()
 
     def _resolve_assets_dir(self):
         for dirpath, dirnames, files in os.walk('.'):
