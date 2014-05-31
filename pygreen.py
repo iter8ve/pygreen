@@ -41,7 +41,6 @@ import markdown
 import pathlib
 import haml
 import shutil
-from multiprocessing import Process, Lock
 from assetmanager import AssetManager
 
 _logger = logging.getLogger(__name__)
@@ -62,8 +61,6 @@ def configure_views(app, file_renderer, postprocessor=None):
         lambda path: file_renderer(path, postprocessor),
         methods=['GET', 'POST', 'PUT', 'DELETE']
     )
-
-    return app
 
 
 def change_href_to_html(val):
@@ -171,19 +168,15 @@ class PyGreen(object):
             lexer_cls=PolyLexer
         )
 
-    def run(self, host='0.0.0.0', port=8080, debug=True,
-            reload=False):
+    def run(self, host='0.0.0.0', port=8080, reload_assets=True):
         """
         Launch a development web server.
         """
-        print("pygreen.run called")
         app = create_app(root_path=self.folder)
-        app = configure_views(app, self.file_renderer)
-        if reload:
+        configure_views(app, self.file_renderer)
+        if reload_assets:
             app.before_first_request(self.manager.build_environment)
-        app.run(host=host, port=port, debug=debug,
-            use_reloader=reload, use_evalex=False,
-            extra_files=self.manager.files_to_watch())
+        app.run(host=host, port=port, debug=True)
 
     def get(self, path):
         """
@@ -192,7 +185,7 @@ class PyGreen(object):
         through Mako, it will be processed.
         """
         app = create_app(root_path=self.folder)
-        app = configure_views(app, self.file_renderer,
+        configure_views(app, self.file_renderer,
             postprocessor=change_href_to_html)
         data = app.test_client().get("/%s" % path).data
         return data
@@ -212,6 +205,7 @@ class PyGreen(object):
         Generates a complete static version of the web site and stores it in
         output_folder.
         """
+        # remove existing output_folder + contents
         if os.path.exists(output_folder):
             shutil.rmtree(output_folder)
 
@@ -227,11 +221,6 @@ class PyGreen(object):
                 os.makedirs(d)
             with open(loc, "wb") as file_:
                 file_.write(content)
-
-    def __call__(self, environ, start_response):
-        app = create_app(root_path=self.folder)
-        app = configure_views(app, self.file_renderer)
-        return app(environ, start_response)
 
     def cli(self, cmd_args=None):
         """
@@ -252,16 +241,15 @@ class PyGreen(object):
             action='store_true', default=False,
             help='just serve static files, do not invoke Mako')
         parser_serve.add_argument('-r', '--reload',
-            action='store_true', default=False,
-            help='server reloads')
-
+            action='store_true', default=True,
+            help='server reloads assets')
 
         def serve():
             if args.disable_templates:
                 self.template_exts = set([])
             config_path = os.path.relpath('assets.yml', self.folder)
-            self.manager = AssetManager(config_path, args.reload)
-            self.run(port=args.port, debug=True, reload=args.reload)
+            self.manager = AssetManager(config_path)
+            self.run(port=args.port, reload_assets=args.reload)
 
         parser_serve.set_defaults(func=serve)
 
