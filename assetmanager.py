@@ -1,34 +1,12 @@
 import haml
 import webassets
-from webassets.bundle import wrap
 import pathlib
 import os
 import logging
 import time
-from watchdog.observers import Observer
-from watchdog.events import FileSystemEventHandler
 
 logger = logging.getLogger(__name__)
-logger.setLevel(logging.DEBUG)
-
-
-class FileModifiedHandler(FileSystemEventHandler):
-    def __init__(self, callable):
-        super(FileModifiedHandler, self).__init__()
-        self.callable = callable
-
-    def _process(self, event):
-        print("handling %s at %s" % (event.event_type, event.src_path))
-
-
-    def on_modified(self, event):
-        self._process(event)
-
-    # def on_created(self, event):
-    #     self._process(event)
-
-    # def on_deleted(self, event):
-    #     self._process(event)
+logger.setLevel(logging.INFO)
 
 class AssetManager(object):
 
@@ -56,7 +34,7 @@ class AssetManager(object):
         return None
 
     def build_environment(self):
-        print "building environment..."
+        logger.debug("building environment...")
         for bundle in self.environment:
             bundle.build()
 
