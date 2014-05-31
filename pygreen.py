@@ -28,6 +28,7 @@ import flask
 from flask.ext.assets import Environment, Bundle
 import os.path
 from mako.lookup import TemplateLookup
+from mako.lexer import Lexer
 import os
 import os.path
 import wsgiref.handlers
@@ -39,6 +40,7 @@ import sys
 import markdown
 import pathlib
 import haml
+import shutil
 from multiprocessing import Process, Lock
 from assetmanager import AssetManager
 
@@ -51,17 +53,34 @@ def create_app(static_folder='static', template_folder=None,
     app.root_path = root_path
     return app
 
-def configure_views(app, file_renderer):
+def configure_views(app, file_renderer, postprocessor=None):
     app.add_url_rule('/', "root",
-        lambda: file_renderer('index.haml'),
+        lambda: file_renderer('index.haml', postprocessor),
         methods=['GET', 'POST', 'PUT', 'DELETE']
     )
     app.add_url_rule('/<path:path>', "all_files",
-        lambda path: file_renderer(path),
+        lambda path: file_renderer(path, postprocessor),
         methods=['GET', 'POST', 'PUT', 'DELETE']
     )
 
     return app
+
+
+def change_href_to_html(val):
+    pattern = r'\.(haml|mako)'
+    return re.sub(pattern, '.html', val)
+
+
+class PolyLexer(Lexer):
+    """
+    Supports transparent preprocessing of .haml templates
+    """
+    def parse(self):
+        fname, ext = os.path.splitext(self.filename)
+        if ext == ".haml":
+            self.preprocessor.insert(0, haml.preprocessor)
+        return super(PolyLexer, self).parse()
+
 
 class PyGreen(object):
 
@@ -73,33 +92,25 @@ class PyGreen(object):
         # directly, use set_folder instead
         self.folder = "."
 
-        # Template preprocessor to pass to Mako
-        self.preprocessor = None
-
         # Process templates at instantiation
-        self.templates = self._get_templates(self.preprocessor)
+        self.templates = self._get_templates()
 
         # A list of regular expression. Files whose the name match
         # one of those regular expressions will not be outputed when generating
         # a static version of the web site
         self.file_exclusion = [
-            r".*\.mako",
             r".*\.py",
             r"(^|.*\/)\..*",
             r".*\.webassets-cache"
         ]
 
-        # Support additional directories at the root level by
+        # Support additional directories by
         # only accepting these on static page generation
         def dirpath_allowed(dirpath):
-            allowed = [
-                r"static",
-                r"templates"
-            ]
-            for patt in allowed:
-                if re.search(patt, dirpath):
-                    return True
-            return False
+            allowed = set(("static", "templates"))
+            disallowed = set(("includes", "layouts"))
+            parts = set(pathlib.Path(dirpath).parts)
+            return (parts & allowed) and not (parts & disallowed)
 
         def is_public(path):
             for ex in self.file_exclusion:
@@ -126,12 +137,14 @@ class PyGreen(object):
         # will not be able to detect the files to export.
         self.file_listers = [base_lister]
 
-        def file_renderer(path):
+        def file_renderer(path, postprocessor=None):
             if is_public(path):
                 if path.split(".")[-1] in self.template_exts and \
                         self.templates.has_template(path):
                     t = self.templates.get_template(path)
                     data = t.render_unicode(pygreen=self)
+                    if callable(postprocessor):
+                        data = postprocessor(data)
                     return data.encode(t.module._source_encoding)
                 if os.path.exists(os.path.join(self.folder, path)):
                     return flask.send_file(path)
@@ -149,22 +162,14 @@ class PyGreen(object):
         self.templates.directories[0] = folder
         self.templates.directories[1] = os.path.join(folder, 'templates')
 
-    # Support injection of a Mako preprocessor (e.g. PyHAML)
-    def _get_templates(self, preprocessor=None):
+    def _get_templates(self):
         template_dir = os.path.join(self.folder, 'templates')
         return TemplateLookup(directories=[self.folder, template_dir],
             imports=["from markdown import markdown"],
             input_encoding='iso-8859-1',
             collection_size=100,
-            preprocessor=preprocessor
+            lexer_cls=PolyLexer
         )
-
-    def set_preprocessor(self, preprocessor):
-        """
-        Inject a Mako preprocessor (e.g. PyHAML)
-        """
-        self.preprocessor = preprocessor
-        self.templates = self._get_templates(preprocessor)
 
     def run(self, host='0.0.0.0', port=8080, debug=True,
             reload=False):
@@ -174,7 +179,8 @@ class PyGreen(object):
         print("pygreen.run called")
         app = create_app(root_path=self.folder)
         app = configure_views(app, self.file_renderer)
-        app.before_first_request(self.manager.build_environment)
+        if reload:
+            app.before_first_request(self.manager.build_environment)
         app.run(host=host, port=port, debug=debug,
             use_reloader=reload, use_evalex=False,
             extra_files=self.manager.files_to_watch())
@@ -186,25 +192,29 @@ class PyGreen(object):
         through Mako, it will be processed.
         """
         app = create_app(root_path=self.folder)
-        app = configure_views(app, self.file_renderer)
+        app = configure_views(app, self.file_renderer,
+            postprocessor=change_href_to_html)
         data = app.test_client().get("/%s" % path).data
         return data
 
     # Support templates directory (vice root directory only) and
-    # .haml suffix (vice .html) for static generation.
+    # .haml or .mako suffix (vice .html) for static generation.
     def _process_path(self, input_path):
         p = pathlib.Path(input_path)
         if p.parts[0] == 'templates':
             p = p.relative_to('templates')
-        if p.suffix == '.haml':
+        if p.suffix in ('.haml', '.mako'):
             p = p.with_suffix('.html')
         return str(p)
 
     def gen_static(self, output_folder):
         """
-        Generates a complete static version of the web site. It will stored in
+        Generates a complete static version of the web site and stores it in
         output_folder.
         """
+        if os.path.exists(output_folder):
+            shutil.rmtree(output_folder)
+
         files = []
         for l in self.file_listers:
             files += l()
@@ -240,10 +250,7 @@ class PyGreen(object):
             help='folder containing files to serve')
         parser_serve.add_argument('-d', '--disable-templates',
             action='store_true', default=False,
-            help='just serve static files, do not use invoke Mako')
-        parser_serve.add_argument('-m', '--use-haml',
-            action='store_true', default=False,
-            help='preprocess with PyHAML')
+            help='just serve static files, do not invoke Mako')
         parser_serve.add_argument('-r', '--reload',
             action='store_true', default=False,
             help='server reloads')
@@ -252,8 +259,6 @@ class PyGreen(object):
         def serve():
             if args.disable_templates:
                 self.template_exts = set([])
-            if args.use_haml:
-                self.set_preprocessor(haml.preprocessor)
             config_path = os.path.relpath('assets.yml', self.folder)
             self.manager = AssetManager(config_path, args.reload)
             self.run(port=args.port, debug=True, reload=args.reload)
@@ -266,14 +271,11 @@ class PyGreen(object):
             help='folder to store the files')
         parser_gen.add_argument('-f', '--folder', default=".",
             help='folder containing files to serve')
-        parser_gen.add_argument('-m', '--use-haml',
-            action='store_true', default=False,
-            help='preprocess with PyHAML')
 
         def gen():
-            self._generate_assets(rebuild=False)
-            if args.use_haml:
-                self.set_preprocessor(haml.preprocessor)
+            config_path = os.path.relpath('assets.yml', self.folder)
+            manager = AssetManager(config_path)
+            manager.build_environment()
             self.gen_static(args.output)
 
         parser_gen.set_defaults(func=gen)
