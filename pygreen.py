@@ -176,7 +176,8 @@ class PyGreen(object):
         configure_views(app, self.file_renderer)
         if reload_assets:
             app.before_first_request(self.manager.build_environment)
-        app.run(host=host, port=port, debug=True)
+        app.run(host=host, port=port, debug=True,
+            extra_files=self.manager.files_to_watch())
 
     def get(self, path):
         """

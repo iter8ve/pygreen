@@ -1,12 +1,13 @@
 import haml
 import webassets
+from webassets.bundle import wrap
 import pathlib
 import os
 import logging
 import time
 
 logger = logging.getLogger(__name__)
-logger.setLevel(logging.INFO)
+logger.setLevel(logging.DEBUG)
 
 class AssetManager(object):
 
@@ -20,6 +21,7 @@ class AssetManager(object):
         environment = webassets.Environment()
         environment.directory = self._resolve_assets_dir()
         for name, bundle in bundles.iteritems():
+            logger.debug("registering %s" % name)
             environment.register(name, bundle)
         return environment
 
@@ -32,6 +34,17 @@ class AssetManager(object):
             if 'assets' in dirnames:
                 return os.path.join(dirpath, 'assets')
         return None
+
+    def files_to_watch(self):
+        files, depends = [], []
+        ctx = wrap(self.environment, None)
+        for bundle in self.environment:
+            files.extend(bundle.resolve_contents(force=True))
+            depends.extend(bundle.resolve_depends(ctx))
+        orig, abspaths = zip(*files)
+        abspaths = list(abspaths)
+        abspaths.extend(depends)
+        return set(abspaths)
 
     def build_environment(self):
         logger.debug("building environment...")
