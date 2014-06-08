@@ -42,6 +42,7 @@ import pathlib
 import haml
 import shutil
 from assetmanager import AssetManager
+from livereload import Server
 
 _logger = logging.getLogger(__name__)
 
@@ -179,6 +180,16 @@ class PyGreen(object):
         app.run(host=host, port=port, debug=True,
             extra_files=self.manager.files_to_watch())
 
+    def run_livereload(self):
+        app = create_app(root_path=self.folder)
+        configure_views(app, self.file_renderer)
+        server = Server(app)
+        for glob_pattern in self.manager.globs_to_watch():
+            server.watch('assets/%s' % glob_pattern,
+                self.manager.build_environment)
+        server.watch('templates/*', self.manager.build_environment)
+        server.serve()
+
     def get(self, path):
         """
         Get the content of a file, indentified by its path relative to the folder configured
@@ -244,13 +255,19 @@ class PyGreen(object):
         parser_serve.add_argument('-r', '--reload',
             action='store_true', default=True,
             help='server reloads assets')
+        parser_serve.add_argument('-l', '--livereload',
+            action='store_true', default=False,
+            help='use livereload server')
 
         def serve():
             if args.disable_templates:
                 self.template_exts = set([])
             config_path = os.path.relpath('assets.yml', self.folder)
             self.manager = AssetManager(config_path)
-            self.run(port=args.port, reload_assets=args.reload)
+            if args.livereload:
+                self.run_livereload()
+            else:
+                self.run(port=args.port, reload_assets=args.reload)
 
         parser_serve.set_defaults(func=serve)
 
