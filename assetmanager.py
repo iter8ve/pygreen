@@ -36,6 +36,9 @@ class AssetManager(object):
         return None
 
     def files_to_watch(self):
+        """
+        List of paths resolved from globs in bundle configs
+        """
         files, depends = [], []
         ctx = wrap(self.environment, None)
         for bundle in self.environment:
@@ -45,6 +48,20 @@ class AssetManager(object):
         abspaths = list(abspaths)
         abspaths.extend(depends)
         return set(abspaths)
+
+    def globs_to_watch(self):
+        """
+        List of raw globs from bundle configs
+        """
+        globs = []
+        for bundle in self.environment:
+            if bundle.contents:
+                globs.extend(bundle.contents)
+            if bundle.depends:
+                globs.extend(bundle.depends)
+        return globs
+
+
 
     def build_environment(self):
         logger.debug("building environment...")
