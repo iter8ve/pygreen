@@ -6,8 +6,8 @@ import os
 import logging
 import time
 
-logger = logging.getLogger(__name__)
-logger.setLevel(logging.DEBUG)
+log = logging.getLogger(__name__)
+log.setLevel(logging.DEBUG)
 
 class AssetManager(object):
 
@@ -17,17 +17,23 @@ class AssetManager(object):
             return loader.load_bundles()
         return None
 
-    def _setup_environment(self, bundles):
+    def _setup_environment(self, bundles, production):
+        if bundles is None:
+            return None
         environment = webassets.Environment()
         environment.directory = self._resolve_assets_dir()
+        debug = False if production else "merge"
+        environment.debug = debug
+        environment.config['UGLIFYJS_EXTRA_ARGS'] = ['-c', '-m']
         for name, bundle in bundles.iteritems():
-            logger.debug("registering %s" % name)
+            log.debug("registering %s" % name)
             environment.register(name, bundle)
         return environment
 
-    def __init__(self, config_path):
+    def __init__(self, config_path, production=False):
+        log.debug("production %s" % production)
         bundles = self._load_asset_bundles(config_path)
-        self.environment = self._setup_environment(bundles)
+        self.environment = self._setup_environment(bundles, production)
 
     def _resolve_assets_dir(self):
         for dirpath, dirnames, files in os.walk('.'):
@@ -54,17 +60,17 @@ class AssetManager(object):
         List of raw globs from bundle configs
         """
         globs = []
-        for bundle in self.environment:
-            if bundle.contents:
-                globs.extend(bundle.contents)
-            if bundle.depends:
-                globs.extend(bundle.depends)
+        if self.environment:
+            for bundle in self.environment:
+                if bundle.contents:
+                    globs.extend(bundle.contents)
+                if bundle.depends:
+                    globs.extend(bundle.depends)
         return globs
 
-
-
     def build_environment(self):
-        logger.debug("building environment...")
-        for bundle in self.environment:
-            bundle.build()
+        if self.environment:
+            log.debug("building environment...")
+            for bundle in self.environment:
+                bundle.build()
 

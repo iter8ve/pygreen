@@ -143,7 +143,10 @@ class PyGreen(object):
                     data = t.render_unicode(pygreen=self)
                     if callable(postprocessor):
                         data = postprocessor(data)
-                    return data.encode(t.module._source_encoding)
+                    try:
+                        return data.encode(t.module._source_encoding)
+                    except:
+                        return data
                 if os.path.exists(os.path.join(self.folder, path)):
                     return flask.send_file(path)
             flask.abort(404)
@@ -163,7 +166,8 @@ class PyGreen(object):
     def _get_templates(self):
         template_dir = os.path.join(self.folder, 'templates')
         return TemplateLookup(directories=[self.folder, template_dir],
-            imports=["from markdown import markdown"],
+            imports=["from markdown import markdown",
+                     "from filters import smartydown, sectionize"],
             input_encoding='iso-8859-1',
             collection_size=100,
             lexer_cls=PolyLexer
@@ -188,7 +192,8 @@ class PyGreen(object):
             server.watch('assets/%s' % glob_pattern,
                 self.manager.build_environment)
         server.watch('templates/*', self.manager.build_environment)
-        server.serve()
+        server.watch('templates/**/*', self.manager.build_environment)
+        server.serve(host="0.0.0.0")
 
     def get(self, path):
         """
@@ -212,13 +217,13 @@ class PyGreen(object):
             p = p.with_suffix('.html')
         return str(p)
 
-    def gen_static(self, output_folder):
+    def gen_static(self, output_folder, overwrite):
         """
         Generates a complete static version of the web site and stores it in
         output_folder.
         """
         # remove existing output_folder + contents
-        if os.path.exists(output_folder):
+        if overwrite and os.path.exists(output_folder):
             shutil.rmtree(output_folder)
 
         files = []
@@ -277,12 +282,18 @@ class PyGreen(object):
             help='folder to store the files')
         parser_gen.add_argument('-f', '--folder', default=".",
             help='folder containing files to serve')
+        parser_gen.add_argument('-o', '--overwrite',
+            action="store_true", default=False,
+            help='overwrite existing output folder')
+        parser_gen.add_argument('-p', '--production',
+            action="store_true", default=False,
+            help='use production filters')
 
         def gen():
             config_path = os.path.relpath('assets.yml', self.folder)
-            manager = AssetManager(config_path)
+            manager = AssetManager(config_path, production=args.production)
             manager.build_environment()
-            self.gen_static(args.output)
+            self.gen_static(args.output, overwrite=args.overwrite)
 
         parser_gen.set_defaults(func=gen)
 
