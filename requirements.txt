@@ -1,0 +1,24 @@
+Flask==0.10.1
+Flask-Assets==0.9
+Jinja2==2.7.2
+Mako==0.9.1
+Markdown==2.4
+MarkupSafe==0.21
+PyHAML==1.0.1
+PyYAML==3.11
+Werkzeug==0.9.4
+argh==0.24.1
+argparse==1.2.1
+backports.ssl-match-hostname==3.4.0.2
+formic==0.9beta8
+itsdangerous==0.24
+livereload==2.2.0
+pathlib==1.0
+pathtools==0.1.2
+-e git+https://github.com/iter8ve/pygreen.git@814d4d9b0f89db99535722acdec711882d357fe7#egg=pygreen-dev
+six==1.6.1
+smartypants==1.8.3
+tornado==3.2.2
+watchdog==0.7.1
+webassets==0.10.dev
+wsgiref==0.1.2
