@@ -24,7 +24,11 @@ class AssetManager(object):
         environment.directory = self._resolve_assets_dir()
         debug = False if production else "merge"
         environment.debug = debug
+        if debug:
+            environment.manifest = None
+            environment.cache = False
         environment.config['UGLIFYJS_EXTRA_ARGS'] = ['-c', '-m']
+        environment.config['SASS_DEBUG_INFO'] = False
         for name, bundle in bundles.iteritems():
             log.debug("registering %s" % name)
             environment.register(name, bundle)
