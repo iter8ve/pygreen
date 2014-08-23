@@ -26,6 +26,7 @@ from __future__ import unicode_literals, print_function
 
 import flask
 from flask.ext.assets import Environment, Bundle
+from flask.config import Config as FlaskConfig
 import os.path
 from mako.lookup import TemplateLookup
 from mako.lexer import Lexer
@@ -47,10 +48,12 @@ from livereload import Server
 _logger = logging.getLogger(__name__)
 
 def create_app(static_folder='static', template_folder=None,
-        root_path="."):
+        root_path=".", config_file=None):
     app = flask.Flask('pygreen',
         static_folder=static_folder, template_folder=template_folder)
     app.root_path = root_path
+    if config_file:
+        app.config.from_pyfile(config_file)
     return app
 
 def configure_views(app, file_renderer, postprocessor=None):
@@ -67,6 +70,12 @@ def configure_views(app, file_renderer, postprocessor=None):
 def change_href_to_html(val):
     pattern = r'\.(haml|mako)'
     return re.sub(pattern, '.html', val)
+
+
+def config_to_dict(root_path, config_file):
+    config = FlaskConfig(root_path)
+    config.from_pyfile(config_file)
+    return dict((k, v) for k, v in config.iteritems())
 
 
 class PolyLexer(Lexer):
@@ -140,7 +149,8 @@ class PyGreen(object):
                 if path.split(".")[-1] in self.template_exts and \
                         self.templates.has_template(path):
                     t = self.templates.get_template(path)
-                    data = t.render_unicode(pygreen=self)
+                    data = t.render_unicode(pygreen=self,
+                        config=config_to_dict(self.folder, self.config_file))
                     if callable(postprocessor):
                         data = postprocessor(data)
                     try:
@@ -177,7 +187,7 @@ class PyGreen(object):
         """
         Launch a development web server.
         """
-        app = create_app(root_path=self.folder)
+        app = create_app(root_path=self.folder, config_file=self.config_file)
         configure_views(app, self.file_renderer)
         if reload_assets:
             app.before_first_request(self.manager.build_environment)
@@ -185,7 +195,7 @@ class PyGreen(object):
             extra_files=self.manager.files_to_watch())
 
     def run_livereload(self):
-        app = create_app(root_path=self.folder)
+        app = create_app(root_path=self.folder, config_file=self.config_file)
         configure_views(app, self.file_renderer)
         server = Server(app)
         for glob_pattern in self.manager.globs_to_watch():
@@ -201,7 +211,7 @@ class PyGreen(object):
         in PyGreen. If the file extension is one of the extensions that should be processed
         through Mako, it will be processed.
         """
-        app = create_app(root_path=self.folder)
+        app = create_app(root_path=self.folder, config_file=self.config_file)
         configure_views(app, self.file_renderer,
             postprocessor=change_href_to_html)
         data = app.test_client().get("/%s" % path).data
@@ -263,12 +273,16 @@ class PyGreen(object):
         parser_serve.add_argument('-l', '--livereload',
             action='store_true', default=False,
             help='use livereload server')
+        parser_serve.add_argument('-c', '--config-file',
+            default="default.cfg", help='config file')
 
         def serve():
             if args.disable_templates:
                 self.template_exts = set([])
-            config_path = os.path.relpath('assets.yml', self.folder)
-            self.manager = AssetManager(config_path)
+            config_rel_path = os.path.relpath(args.config_file, self.folder)
+            self.config_file = os.path.abspath(config_rel_path)
+            assets_config_path = os.path.relpath('assets.yml', self.folder)
+            self.manager = AssetManager(assets_config_path)
             if args.livereload:
                 self.run_livereload()
             else:
@@ -288,10 +302,14 @@ class PyGreen(object):
         parser_gen.add_argument('-p', '--production',
             action="store_true", default=False,
             help='use production filters')
+        parser_gen.add_argument('-c', '--config-file',
+            default="default.cfg", help='config file')
 
         def gen():
-            config_path = os.path.relpath('assets.yml', self.folder)
-            manager = AssetManager(config_path, production=args.production)
+            assets_config_path = os.path.relpath('assets.yml', self.folder)
+            config_rel_path = os.path.relpath(args.config_file, self.folder)
+            self.config_file = os.path.abspath(config_rel_path)
+            manager = AssetManager(assets_config_path, production=args.production)
             manager.build_environment()
             self.gen_static(args.output, overwrite=args.overwrite)
 
