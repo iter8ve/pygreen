@@ -17,18 +17,45 @@ class AssetManager(object):
             return loader.load_bundles()
         return None
 
+    def _adjust_bundle_outputs(self, bundles):
+        for bundle in bundles.values():
+            old_path, old_ext = os.path.splitext(bundle.output)
+            bundle.output = ''.join((old_path, '.%(version)s', old_ext))
+        return bundles
+
     def _setup_environment(self, bundles, production):
         if bundles is None:
             return None
-        environment = webassets.Environment()
-        environment.directory = self._resolve_assets_dir()
-        debug = False if production else "merge"
-        environment.debug = debug
-        if debug:
-            environment.manifest = None
-            environment.cache = False
-        environment.config['UGLIFYJS_EXTRA_ARGS'] = ['-c', '-m']
-        environment.config['SASS_DEBUG_INFO'] = False
+
+        if production:
+            bundles = self._adjust_bundle_outputs(bundles)
+
+        env_config = {
+            'directory': self._resolve_assets_dir(),
+            'UGLIFYJS_EXTRA_ARGS': ['-c', '-m'],
+            'SASS_DEBUG_INFO': False
+        }
+
+        if production:
+            env_config.update({
+                'debug': False,
+                'manifest': 'cache',
+                'cache': True,
+                'auto_build': False,
+                'url_expire': True
+            })
+        else:
+            env_config.update({
+                'debug': 'merge',
+                'manifest': None,
+                'cache': False,
+                'auto_build': False,
+                'url_expire': False
+            })
+
+        environment = webassets.Environment(**env_config)
+        environment.url= ''
+
         for name, bundle in bundles.iteritems():
             log.debug("registering %s" % name)
             environment.register(name, bundle)
@@ -72,9 +99,17 @@ class AssetManager(object):
                     globs.extend(bundle.depends)
         return globs
 
-    def build_environment(self):
+    def build_environment(self, force=False):
         if self.environment:
             log.debug("building environment...")
+            if force:
+                log.debug("forcing update...")
             for bundle in self.environment:
-                bundle.build()
+                bundle.build(force=force)
+
+    def asset_urls(self):
+        urls = {}
+        for name, bundle in self.environment._named_bundles.iteritems():
+            urls[name] = [url.split('?')[0] for url in bundle.urls()]
+        return urls
 

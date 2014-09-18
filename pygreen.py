@@ -95,12 +95,18 @@ class PyGreen(object):
         # a set of strings that identifies the extension of the files
         # that should be processed using Mako
         self.template_exts = set(["html", "mako", "haml"])
+
         # the folder where the files to serve are located. Do not set
         # directly, use set_folder instead
         self.folder = "."
 
         # Process templates at instantiation
         self.templates = self._get_templates()
+
+        # Set production to false as a default
+        self.production = False
+
+        self.manager = self._setup_manager()
 
         # A list of regular expression. Files whose the name match
         # one of those regular expressions will not be outputed when generating
@@ -150,7 +156,8 @@ class PyGreen(object):
                         self.templates.has_template(path):
                     t = self.templates.get_template(path)
                     data = t.render_unicode(pygreen=self,
-                        config=config_to_dict(self.folder, self.config_file))
+                        config=config_to_dict(self.folder, self.config_file),
+                        asset_urls=self.manager.asset_urls())
                     if callable(postprocessor):
                         data = postprocessor(data)
                     try:
@@ -182,6 +189,17 @@ class PyGreen(object):
             collection_size=100,
             lexer_cls=PolyLexer
         )
+
+    def set_production(self, val=False):
+        if val not in (True, False):
+            raise ArgumentError('Value must be True or False')
+        self.production = val
+        self.manager = self._setup_manager()
+
+    def _setup_manager(self):
+        assets_config_path = os.path.relpath('assets.yml', self.folder)
+        return AssetManager(assets_config_path,
+            production=self.production)
 
     def run(self, host='0.0.0.0', port=8080, reload_assets=True):
         """
@@ -273,6 +291,9 @@ class PyGreen(object):
         parser_serve.add_argument('-l', '--livereload',
             action='store_true', default=False,
             help='use livereload server')
+        parser_serve.add_argument('-z', '--production',
+            action="store_true", default=False,
+            help='use production filters')
         parser_serve.add_argument('-c', '--config-file',
             default="default.cfg", help='config file')
 
@@ -281,8 +302,7 @@ class PyGreen(object):
                 self.template_exts = set([])
             config_rel_path = os.path.relpath(args.config_file, self.folder)
             self.config_file = os.path.abspath(config_rel_path)
-            assets_config_path = os.path.relpath('assets.yml', self.folder)
-            self.manager = AssetManager(assets_config_path)
+            self.set_production(args.production)
             if args.livereload:
                 self.run_livereload()
             else:
@@ -299,7 +319,7 @@ class PyGreen(object):
         parser_gen.add_argument('-o', '--overwrite',
             action="store_true", default=False,
             help='overwrite existing output folder')
-        parser_gen.add_argument('-p', '--production',
+        parser_gen.add_argument('-z', '--production',
             action="store_true", default=False,
             help='use production filters')
         parser_gen.add_argument('-c', '--config-file',
@@ -309,8 +329,8 @@ class PyGreen(object):
             assets_config_path = os.path.relpath('assets.yml', self.folder)
             config_rel_path = os.path.relpath(args.config_file, self.folder)
             self.config_file = os.path.abspath(config_rel_path)
-            manager = AssetManager(assets_config_path, production=args.production)
-            manager.build_environment()
+            self.set_production(args.production)
+            self.manager.build_environment(force=True)
             self.gen_static(args.output, overwrite=args.overwrite)
 
         parser_gen.set_defaults(func=gen)
